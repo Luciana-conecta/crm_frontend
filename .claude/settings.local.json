@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed -i 's/#135bec/#D4A574/g; s/#0f4bc4/#C08A58/g; s/#8b5cf6/#A0856A/g' \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\\\\src\\\\pages\\\\Dashboard.jsx\")",
+      "Bash(sed -i 's/#135bec/#D4A574/g' \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\\\\src\\\\pages\\\\Automation.jsx\")",
+      "Bash(grep -rn \"#135bec\\\\|#0f4bc4\\\\|#8b5cf6\" 'C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\\\\src' 'C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\\\\components' --include=*.jsx)",
+      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\" -type f -name \"*.jsx\" -o -name \"*.js\" -o -name \"*.json\")",
+      "Bash(find \"/c/Users/SAMSUNG/Downloads/crm-conecta \\(1\\)/src\" -type f \\\\\\( -name \"*.jsx\" -o -name \"*.js\" \\\\\\))",
+      "Bash(find \"/c/Users/SAMSUNG/Downloads/crm-conecta \\(1\\)\" -path \"*/node_modules\" -prune -o -type f \\\\\\( -name \"*route*\" -o -name \"*controller*\" -o -name \"*server*\" \\\\\\) -print)",
+      "Bash(find \"/c/Users/SAMSUNG/Downloads/crm-conecta \\(1\\)\" -name \"Dashboard*\" -type f)",
+      "Bash(find \"/c/Users/SAMSUNG/Downloads/crm-conecta \\(1\\)\" -type f -name \"*.json\")",
+      "Bash(find \"/c/Users/SAMSUNG/Downloads/crm-conecta \\(1\\)\" -maxdepth 2 -type d)",
+      "Bash(find \"/c/Users/SAMSUNG/Downloads/crm-conecta \\(1\\)/src\" -type f -name \"*.jsx\" -o -name \"*.js\")",
+      "Bash(cat \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\\\\package.json\")",
+      "Bash(find 'C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)/src' -name *.css -not -path */node_modules/*)",
+      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\" -name \"*.css\" -not -path \"*/node_modules/*\")"
+    ]
+  }
+}
