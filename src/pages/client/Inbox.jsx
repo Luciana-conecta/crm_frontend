@@ -12,7 +12,14 @@ const INTENT_LABELS = {
 
 const Inbox = () => {
   const { user, impersonatedEmpresa } = useAuth();
-  const empresaId = impersonatedEmpresa?.empresa_id || impersonatedEmpresa?.id || user?.empresa_id;
+  const _lsEmpId = localStorage.getItem('crm_empresa_id');
+  const empresaId = impersonatedEmpresa?.empresa_id
+    || impersonatedEmpresa?.id
+    || user?.empresa_id
+    || user?.empresa?.id
+    || user?.empresa_principal?.id_empresa
+    || user?.empresas?.[0]?.id_empresa
+    || (_lsEmpId && _lsEmpId !== 'null' ? Number(_lsEmpId) : null);
   
   // Estados
   const [conversations, setConversations] = useState([]);

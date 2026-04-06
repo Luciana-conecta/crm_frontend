@@ -13,7 +13,13 @@
       "Bash(find \"/c/Users/SAMSUNG/Downloads/crm-conecta \\(1\\)/src\" -type f -name \"*.jsx\" -o -name \"*.js\")",
       "Bash(cat \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\\\\package.json\")",
       "Bash(find 'C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)/src' -name *.css -not -path */node_modules/*)",
-      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\" -name \"*.css\" -not -path \"*/node_modules/*\")"
+      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\" -name \"*.css\" -not -path \"*/node_modules/*\")",
+      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\" -type f -name \".env*\")",
+      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\" -type f \\\\\\( -name \".env*\" -o -name \"*example*\" \\\\\\))",
+      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\" -type f -name \"*.js\" -o -name \"*.ts\")",
+      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)/src\" -type f -name \"*.js\" -o -name \"*.jsx\" -o -name \"*.ts\" -o -name \"*.tsx\")",
+      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\" -type d -name \"backend\" -o -type d -name \"server\")",
+      "Bash(find \"C:\\\\Users\\\\SAMSUNG\\\\Downloads\\\\crm-conecta \\(1\\)\" -type f \\\\\\( -name \"*.json\" -o -name \"*.md\" \\\\\\))"
     ]
   }
 }

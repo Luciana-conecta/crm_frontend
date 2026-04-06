@@ -78,7 +78,12 @@ const NAV_ITEMS = [
 const Settings = ({ role = 'admin' }) => {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
-  const empresaId = user?.empresa_id;
+  const _lsId = localStorage.getItem('crm_empresa_id');
+  const empresaId = user?.empresa_id
+    || user?.empresa?.id
+    || user?.empresa_principal?.id_empresa
+    || user?.empresas?.[0]?.id_empresa
+    || (_lsId && _lsId !== 'null' ? Number(_lsId) : null);
   const isClient = role === 'admin_empresa' || role === 'usuario_empresa' || role === 'client';
 
   const [activeTab, setActiveTab] = useState('general');
@@ -113,7 +118,8 @@ const Settings = ({ role = 'admin' }) => {
   const [waSaving,    setWaSaving]    = useState(false);
   const [waMsg,       setWaMsg]       = useState(null);
   const [waConfirm,   setWaConfirm]   = useState(null);
-  const [waForm, setWaForm] = useState({ nombre: '', phone_number_id: '', access_token: '', business_account_id: '' });
+  const WA_EMPTY = { nombre: '', phone_number_id: '', business_account_id: '', access_token: '', client_id: '', client_secret: '' };
+  const [waForm, setWaForm] = useState(WA_EMPTY);
 
   // ── Social canales (IG / FB) ──
   const makeSocial = () => ({ canales: [], loading: false, showForm: false, editing: null, saving: false, msg: null, confirm: null, form: { nombre: '', page_id: '', access_token: '' } });
@@ -150,8 +156,21 @@ const Settings = ({ role = 'admin' }) => {
   };
 
   // ── WA handlers ──
-  const waOpenNew  = () => { setWaEditing(null); setWaForm({ nombre: '', phone_number_id: '', access_token: '', business_account_id: '' }); setWaMsg(null); setWaShowForm(true); };
-  const waOpenEdit = (c) => { setWaEditing(c); setWaForm({ nombre: c.nombre, phone_number_id: c.phone_number_id, access_token: c.access_token, business_account_id: c.business_account_id }); setWaMsg(null); setWaShowForm(true); };
+  const waOpenNew  = () => { setWaEditing(null); setWaForm(WA_EMPTY); setWaMsg(null); setWaShowForm(true); };
+  const waOpenEdit = (c) => {
+    const cfg = c.config || {};
+    setWaEditing(c);
+    setWaForm({
+      nombre:               c.nombre              || '',
+      phone_number_id:      c.phone_number_id     || '',
+      business_account_id:  c.business_account_id || '',
+      access_token:         c.access_token        || '',
+      client_id:            cfg.client_id         || '',
+      client_secret:        cfg.client_secret     || '',
+    });
+    setWaMsg(null);
+    setWaShowForm(true);
+  };
   const waDelete   = async (id) => {
     try { await inboxAPI.deleteCanal(empresaId, id); loadWa(); } catch (e) { alert(e.message); }
     finally { setWaConfirm(null); }
@@ -269,13 +288,20 @@ const Settings = ({ role = 'admin' }) => {
         </button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {fields.map(f => (
-          <div key={f.key} className={f.full ? 'md:col-span-2' : ''}>
-            <label className="text-[10px] font-black text-text-sub-light uppercase tracking-widest block mb-1.5">{f.label}</label>
-            <input required={f.required !== false} type={f.type || 'text'} value={form[f.key]} onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))} placeholder={f.placeholder} className={inputCls} />
-            {f.hint && <p className="text-[10px] text-text-sub-light mt-1">{f.hint}</p>}
-          </div>
-        ))}
+        {fields.map(f => {
+          if (f.type === 'separator') return (
+            <div key={f.key} className="md:col-span-2 pt-1">
+              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest border-b border-blue-100 dark:border-blue-900/40 pb-1">{f.label}</p>
+            </div>
+          );
+          return (
+            <div key={f.key} className={f.full ? 'md:col-span-2' : ''}>
+              <label className="text-[10px] font-black text-text-sub-light uppercase tracking-widest block mb-1.5">{f.label}</label>
+              <input required={!!f.required} type={f.type || 'text'} value={form[f.key] ?? ''} onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))} placeholder={f.placeholder} className={inputCls} />
+              {f.hint && <p className="text-[10px] text-text-sub-light mt-1">{f.hint}</p>}
+            </div>
+          );
+        })}
       </div>
       {msg && <p className={`text-xs font-bold ${msg.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>}
       <div className="flex gap-3">
@@ -429,10 +455,14 @@ const Settings = ({ role = 'admin' }) => {
             onSubmit={waSave} saving={waSaving} msg={waMsg}
             onClose={() => { setWaShowForm(false); setWaEditing(null); setWaMsg(null); }}
             fields={[
-              { key: 'nombre',               label: 'Nombre del canal',         placeholder: 'Canal Principal',      required: true },
-              { key: 'phone_number_id',       label: 'Phone Number ID',          placeholder: '123456789012345',      required: true },
-              { key: 'business_account_id',   label: 'WABA ID',                  placeholder: '987654321098765',      required: true },
-              { key: 'access_token',          label: 'Access Token (Meta)',       placeholder: 'EAAxxxxxxxx...',       required: true, type: 'password', full: true, hint: 'Token permanente de Meta Business Suite.' },
+              { key: 'nombre',              label: 'Nombre del canal',       placeholder: 'Canal Principal',   required: true, full: true },
+              { key: '_sep_send',           label: 'Para enviar mensajes',   type: 'separator' },
+              { key: 'phone_number_id',     label: 'Phone Number ID',        placeholder: '123456789012345',   required: true },
+              { key: 'business_account_id', label: 'Business Account ID',    placeholder: '987654321098765',   required: true },
+              { key: 'access_token',        label: 'Access Token',           placeholder: 'EAAxxxxxxxx...',    required: true, type: 'password', full: true, hint: 'Token permanente desde Meta Business Suite → Configuración del sistema.' },
+              { key: '_sep_recv',           label: 'Para recibir mensajes',  type: 'separator' },
+              { key: 'client_id',           label: 'Client ID',              placeholder: '1234567890',        required: true },
+              { key: 'client_secret',       label: 'Client Secret',          placeholder: 'abc123...',         required: true, type: 'password', hint: 'Desde Meta for Developers → Tu App → Configuración básica.' },
             ]}
           />
         )}

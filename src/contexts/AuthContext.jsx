@@ -47,11 +47,42 @@ export const AuthProvider = ({ children }) => {
 
     if (token && storedUser) {
       try {
-        const parsedUser = mergeLogoIntoUser(JSON.parse(storedUser));
+        let parsedUser = JSON.parse(storedUser);
+
+        // Si empresa_id no está, intentar extraer del JWT payload
+        if (!parsedUser.empresa_id) {
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            if (payload.empresa_id) parsedUser.empresa_id = payload.empresa_id;
+          } catch {}
+        }
+
+        parsedUser = mergeLogoIntoUser(parsedUser);
         setUser(parsedUser);
         setIsAuthenticated(true);
-        console.log('✅ Sesión restaurada:', parsedUser);
-        console.log('✅ Estado actualizado: isAuthenticated = true');
+
+        // Si aún no hay empresa_id (token antiguo), refrescar desde /auth/me
+        if (!parsedUser.empresa_id) {
+          const refreshFromMe = async () => {
+            try {
+              const resp = await fetch('/api/auth/me', {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              if (resp.ok) {
+                const data = await resp.json();
+                const freshUser = data.user || data;
+                if (freshUser.empresa_id) {
+                  const merged = mergeLogoIntoUser({ ...parsedUser, ...freshUser });
+                  localStorage.setItem('user', JSON.stringify(merged));
+                  localStorage.setItem('crm_empresa_id', String(freshUser.empresa_id));
+                  setUser(merged);
+                }
+              }
+            } catch {}
+          };
+          refreshFromMe();
+        }
+
       } catch (e) {
         console.error('❌ Error parseando usuario:', e);
         logout();
@@ -109,6 +140,14 @@ export const AuthProvider = ({ children }) => {
       
       if (!tokenVerify || !userVerify) {
         throw new Error('Error guardando en localStorage');
+      }
+
+      // Si empresa_id no vino en userData, extraerlo del JWT
+      if (!userData.empresa_id) {
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          if (payload.empresa_id) userData.empresa_id = payload.empresa_id;
+        } catch {}
       }
 
       // Actualizar estado de React (inyectando logo guardado si el backend no lo devolvió)

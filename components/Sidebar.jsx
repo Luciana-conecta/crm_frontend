@@ -35,7 +35,6 @@ const Sidebar = ({ role, onLogout }) => {
     !ADMIN_EMPRESA_ONLY.includes(item.path) || isAdminEmpresa
   );
 
-  console.log('[Sidebar] user object:', user);
 
   const logoSrc = impersonatedEmpresa
     ? (impersonatedEmpresa.logo || SUPER_ADMIN_LOGO)
