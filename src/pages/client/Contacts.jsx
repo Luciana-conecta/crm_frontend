@@ -298,7 +298,7 @@ const ClientContacts = () => {
   if (loading) return (
     <div className="p-20 flex flex-col items-center justify-center gap-4 text-primary">
       <span className="size-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-      <p className="font-black uppercase tracking-widest text-xs">Sincronizando con Postgres...</p>
+      <p className="font-black uppercase tracking-widest text-xs">Cargando...</p>
     </div>
   );
 

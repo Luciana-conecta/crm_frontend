@@ -88,7 +88,7 @@ function AppContent() {
 
   const handleImpersonate = (empresa) => {
     startImpersonation(empresa);
-    navigate('/inbox');
+    navigate('/workspace');
   };
 
   const handleStopImpersonation = () => {
@@ -122,8 +122,8 @@ function AppContent() {
         <Route path="/my-billing"  element={<Navigate to="/settings" replace />} />
         <Route path="/ai-assistant" element={<ClientAIAssistant />} />
         <Route path="/help" element={<Help />} />
-        <Route path="/" element={<Navigate to={userRole === 'super_admin' ? '/dashboard' : '/inbox'} replace />} />
-        <Route path="*" element={<Navigate to={userRole === 'super_admin' ? '/dashboard' : '/inbox'} replace />} />
+        <Route path="/" element={<Navigate to={userRole === 'super_admin' ? '/workspace' : '/workspace'} replace />} />
+        <Route path="*" element={<Navigate to={userRole === 'super_admin' ? '/workspace' : '/workspace'} replace />} />
       </Routes>
     </AppLayout>
   );

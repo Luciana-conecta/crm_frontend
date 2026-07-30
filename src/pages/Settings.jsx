@@ -5,6 +5,7 @@ import { inboxAPI, socialAPI, authAPI } from '../services/api';
 import ClientTeamManagement from './client/TeamManagement';
 import ClientBilling from './client/Billing';
 import ClientPermissions from './client/RolePermissions';
+import WhatsAppQRModal from '../components/WhatsAppQRModal';
 
 const IMGBB_API_KEY = import.meta.env.VITE_IMGBB_API_KEY;
 
@@ -64,6 +65,94 @@ const STATUS_BADGE = {
 
 const inputCls = 'w-full h-12 px-4 bg-gray-50 dark:bg-gray-800 border border-border-light dark:border-border-dark rounded-xl font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30 dark:text-white placeholder-text-sub-light transition-all';
 
+// ── Componentes auxiliares (fuera de Settings para evitar re-mount) ───────────
+
+const ChannelCard = ({ nombre, tipo, estado = 'activo', meta, logo, onEdit, onDisconnect, onConnect, confirmId, setConfirm }) => {
+  const st = CHANNEL_STYLES[tipo] || CHANNEL_STYLES.whatsapp;
+  const isActive = estado === 'activo';
+  const isError  = estado === 'error';
+  return (
+    <div className={`bg-white dark:bg-surface-dark rounded-2xl border ${isError ? 'border-red-200 dark:border-red-800' : 'border-border-light dark:border-border-dark'} p-5 flex flex-col gap-4 relative overflow-hidden`}>
+      <div className="flex items-start justify-between">
+        <div className={`size-12 rounded-2xl flex items-center justify-center text-white ${st.bg} shadow-lg`}>
+          {logo}
+        </div>
+        <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${isActive ? STATUS_BADGE.activo : isError ? STATUS_BADGE.error : STATUS_BADGE.desconectado}`}>
+          <span className={`size-1.5 rounded-full ${isActive ? 'bg-green-500 animate-pulse' : isError ? 'bg-red-500' : 'bg-gray-400'}`} />
+          {isActive ? 'Activo' : isError ? 'Error' : 'Desconectado'}
+        </span>
+      </div>
+      <div>
+        <p className="font-black text-text-main-light dark:text-white text-sm">{nombre}</p>
+        {meta && <p className="text-[11px] text-text-sub-light mt-1">{meta}</p>}
+      </div>
+      <div className="flex gap-2 mt-auto">
+        {isActive || isError ? (
+          <>
+            {onEdit && (
+              <button onClick={onEdit} className="flex-1 py-2 rounded-xl border border-border-light dark:border-border-dark text-xs font-bold text-text-main-light dark:text-white hover:bg-background-light dark:hover:bg-background-dark transition-all">
+                {isError ? 'Configurar' : 'Editar'}
+              </button>
+            )}
+            {isError ? (
+              <button onClick={onEdit} className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-all">Reintentar</button>
+            ) : confirmId ? (
+              <div className="flex gap-1 flex-1">
+                <button onClick={onDisconnect} className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold">Sí</button>
+                <button onClick={() => setConfirm(null)} className="flex-1 py-2 rounded-xl bg-gray-100 dark:bg-gray-800 text-xs font-bold text-text-sub-light">No</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirm(true)} className="flex-1 py-2 rounded-xl border border-red-200 dark:border-red-900 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all">
+                Desconectar
+              </button>
+            )}
+          </>
+        ) : (
+          <button onClick={onConnect} className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all">
+            Conectar ahora
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const CanalForm = ({ tipo, label, color, fields, onSubmit, saving, msg, form, setForm, onClose }) => (
+  <form onSubmit={onSubmit} className={`bg-white dark:bg-surface-dark p-6 rounded-2xl border-2 ${color} space-y-5`}>
+    <div className="flex items-center justify-between">
+      <h4 className="font-black text-text-main-light dark:text-white">{label}</h4>
+      <button type="button" onClick={onClose} className="size-8 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-text-sub-light hover:text-red-500 transition-colors">
+        <span className="material-symbols-outlined text-[18px]">close</span>
+      </button>
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {fields.map(f => {
+        if (f.type === 'separator') return (
+          <div key={f.key} className="md:col-span-2 pt-1">
+            <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest border-b border-blue-100 dark:border-blue-900/40 pb-1">{f.label}</p>
+          </div>
+        );
+        return (
+          <div key={f.key} className={f.full ? 'md:col-span-2' : ''}>
+            <label className="text-[10px] font-black text-text-sub-light uppercase tracking-widest block mb-1.5">{f.label}</label>
+            <input required={!!f.required} type={f.type || 'text'} value={form[f.key] ?? ''} onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))} placeholder={f.placeholder} className={inputCls} />
+            {f.hint && <p className="text-[10px] text-text-sub-light mt-1">{f.hint}</p>}
+          </div>
+        );
+      })}
+    </div>
+    {msg && <p className={`text-xs font-bold ${msg.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>}
+    <div className="flex gap-3">
+      <button type="submit" disabled={saving} className="px-6 py-2.5 bg-blue-600 text-white text-xs font-black rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-all">
+        {saving ? 'Guardando...' : 'Guardar canal'}
+      </button>
+      <button type="button" onClick={onClose} className="px-6 py-2.5 border border-border-light dark:border-border-dark rounded-xl text-xs font-bold text-text-sub-light hover:bg-background-light dark:hover:bg-background-dark transition-all">
+        Cancelar
+      </button>
+    </div>
+  </form>
+);
+
 // ── Submenú lateral ───────────────────────────────────────────────────────────
 const NAV_ITEMS = [
   { id: 'general',   label: 'General',            icon: 'settings' },
@@ -114,6 +203,7 @@ const Settings = ({ role = 'admin' }) => {
   const [waCanales,   setWaCanales]   = useState([]);
   const [waLoading,   setWaLoading]   = useState(false);
   const [waShowForm,  setWaShowForm]  = useState(false);
+  const [waShowQR,    setWaShowQR]    = useState(false);
   const [waEditing,   setWaEditing]   = useState(null);
   const [waSaving,    setWaSaving]    = useState(false);
   const [waMsg,       setWaMsg]       = useState(null);
@@ -175,6 +265,10 @@ const Settings = ({ role = 'admin' }) => {
     try { await inboxAPI.deleteCanal(empresaId, id); loadWa(); } catch (e) { alert(e.message); }
     finally { setWaConfirm(null); }
   };
+  const waDesconectarQR = async (id) => {
+    try { await inboxAPI.desconectarCanalQR(id); loadWa(); } catch (e) { alert(e.message); }
+    finally { setWaConfirm(null); }
+  };
   const waSave = async (e) => {
     e.preventDefault(); setWaSaving(true); setWaMsg(null);
     try {
@@ -226,94 +320,7 @@ const Settings = ({ role = 'admin' }) => {
   };
 
   // ── Componentes de canal ──────────────────────────────────────────────────────
-  const ChannelCard = ({ nombre, tipo, estado = 'activo', meta, logo, onEdit, onDisconnect, onConnect, confirmId, setConfirm }) => {
-    const st = CHANNEL_STYLES[tipo] || CHANNEL_STYLES.whatsapp;
-    const isActive = estado === 'activo';
-    const isError  = estado === 'error';
-    return (
-      <div className={`bg-white dark:bg-surface-dark rounded-2xl border ${isError ? 'border-red-200 dark:border-red-800' : 'border-border-light dark:border-border-dark'} p-5 flex flex-col gap-4 relative overflow-hidden`}>
-        {/* Status badge top-right */}
-        <div className="flex items-start justify-between">
-          <div className={`size-12 rounded-2xl flex items-center justify-center text-white ${st.bg} shadow-lg`}>
-            {logo}
-          </div>
-          <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${isActive ? STATUS_BADGE.activo : isError ? STATUS_BADGE.error : STATUS_BADGE.desconectado}`}>
-            <span className={`size-1.5 rounded-full ${isActive ? 'bg-green-500 animate-pulse' : isError ? 'bg-red-500' : 'bg-gray-400'}`} />
-            {isActive ? 'Activo' : isError ? 'Error' : 'Desconectado'}
-          </span>
-        </div>
-
-        <div>
-          <p className="font-black text-text-main-light dark:text-white text-sm">{nombre}</p>
-          {meta && <p className="text-[11px] text-text-sub-light mt-1">{meta}</p>}
-        </div>
-
-        <div className="flex gap-2 mt-auto">
-          {isActive || isError ? (
-            <>
-              {onEdit && (
-                <button onClick={onEdit} className="flex-1 py-2 rounded-xl border border-border-light dark:border-border-dark text-xs font-bold text-text-main-light dark:text-white hover:bg-background-light dark:hover:bg-background-dark transition-all">
-                  {isError ? 'Configurar' : 'Editar'}
-                </button>
-              )}
-              {isError ? (
-                <button onClick={onEdit} className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-all">Reintentar</button>
-              ) : confirmId ? (
-                <div className="flex gap-1 flex-1">
-                  <button onClick={onDisconnect} className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold">Sí</button>
-                  <button onClick={() => setConfirm(null)} className="flex-1 py-2 rounded-xl bg-gray-100 dark:bg-gray-800 text-xs font-bold text-text-sub-light">No</button>
-                </div>
-              ) : (
-                <button onClick={() => setConfirm(true)} className="flex-1 py-2 rounded-xl border border-red-200 dark:border-red-900 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all">
-                  Desconectar
-                </button>
-              )}
-            </>
-          ) : (
-            <button onClick={onConnect} className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all">
-              Conectar ahora
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const CanalForm = ({ tipo, label, color, fields, onSubmit, saving, msg, form, setForm, onClose }) => (
-    <form onSubmit={onSubmit} className={`bg-white dark:bg-surface-dark p-6 rounded-2xl border-2 ${color} space-y-5`}>
-      <div className="flex items-center justify-between">
-        <h4 className="font-black text-text-main-light dark:text-white">{label}</h4>
-        <button type="button" onClick={onClose} className="size-8 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-text-sub-light hover:text-red-500 transition-colors">
-          <span className="material-symbols-outlined text-[18px]">close</span>
-        </button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {fields.map(f => {
-          if (f.type === 'separator') return (
-            <div key={f.key} className="md:col-span-2 pt-1">
-              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest border-b border-blue-100 dark:border-blue-900/40 pb-1">{f.label}</p>
-            </div>
-          );
-          return (
-            <div key={f.key} className={f.full ? 'md:col-span-2' : ''}>
-              <label className="text-[10px] font-black text-text-sub-light uppercase tracking-widest block mb-1.5">{f.label}</label>
-              <input required={!!f.required} type={f.type || 'text'} value={form[f.key] ?? ''} onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))} placeholder={f.placeholder} className={inputCls} />
-              {f.hint && <p className="text-[10px] text-text-sub-light mt-1">{f.hint}</p>}
-            </div>
-          );
-        })}
-      </div>
-      {msg && <p className={`text-xs font-bold ${msg.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>}
-      <div className="flex gap-3">
-        <button type="submit" disabled={saving} className="px-6 py-2.5 bg-blue-600 text-white text-xs font-black rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-all">
-          {saving ? 'Guardando...' : 'Guardar canal'}
-        </button>
-        <button type="button" onClick={onClose} className="px-6 py-2.5 border border-border-light dark:border-border-dark rounded-xl text-xs font-bold text-text-sub-light hover:bg-background-light dark:hover:bg-background-dark transition-all">
-          Cancelar
-        </button>
-      </div>
-    </form>
-  );
+  // ChannelCard y CanalForm se movieron fuera del componente (arriba)
 
   // ── Render tabs ───────────────────────────────────────────────────────────────
   const renderCanales = () => {
@@ -340,7 +347,7 @@ const Settings = ({ role = 'admin' }) => {
             </p>
           </div>
           <button
-            onClick={() => { setWaShowForm(true); setWaEditing(null); }}
+            onClick={() => setWaShowQR(true)}
             className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-all shadow shadow-blue-600/20 shrink-0"
           >
             <span className="material-symbols-outlined text-[18px]">add_link</span>
@@ -376,22 +383,27 @@ const Settings = ({ role = 'admin' }) => {
                 <ChannelCard key={c.id}
                   nombre={c.nombre} tipo="whatsapp"
                   estado={c.activo ? 'activo' : 'inactivo'}
-                  meta={c.phone_number_id ? `ID: ${c.phone_number_id.slice(0, 8)}...` : ''}
+                  meta={c.metodo_conexion === 'qr'
+                    ? (c.qr_phone ? `Vinculado: +${c.qr_phone}` : 'Vinculado por QR')
+                    : (c.phone_number_id ? `ID: ${c.phone_number_id.slice(0, 8)}...` : '')}
                   logo={<WhatsAppLogo />}
-                  onEdit={() => waOpenEdit(c)}
-                  onDisconnect={() => waDelete(c.id)}
+                  onEdit={c.metodo_conexion === 'qr' ? null : () => waOpenEdit(c)}
+                  onDisconnect={() => c.metodo_conexion === 'qr' ? waDesconectarQR(c.id) : waDelete(c.id)}
                   confirmId={waConfirm === c.id}
                   setConfirm={(v) => setWaConfirm(v ? c.id : null)}
                 />
               )) : (
-                <div
-                  onClick={() => { setWaShowForm(true); setWaEditing(null); }}
-                  className="bg-white dark:bg-surface-dark rounded-2xl border-2 border-dashed border-green-200 dark:border-green-900 p-5 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-green-400 hover:bg-green-50 dark:hover:bg-green-900/10 transition-all min-h-[160px]"
-                >
+                <div className="bg-white dark:bg-surface-dark rounded-2xl border-2 border-dashed border-green-200 dark:border-green-900 p-5 flex flex-col items-center justify-center gap-3 min-h-[160px]">
                   <div className="size-12 rounded-2xl bg-green-500 flex items-center justify-center text-white shadow-lg shadow-green-500/20">
                     <WhatsAppLogo />
                   </div>
-                  <p className="text-xs font-black text-green-600 text-center">Conectar WhatsApp Business</p>
+                  <p className="text-xs font-black text-green-600 text-center">Conectar WhatsApp</p>
+                  <button
+                    onClick={() => setWaShowQR(true)}
+                    className="w-full py-2 rounded-xl bg-green-500 text-white text-[11px] font-bold hover:bg-green-600 transition-all"
+                  >
+                    Vincular con QR
+                  </button>
                 </div>
               )}
 
@@ -522,6 +534,15 @@ const Settings = ({ role = 'admin' }) => {
             ))}
           </div>
         </div>
+
+        {/* Modal de vinculación por QR */}
+        {waShowQR && (
+          <WhatsAppQRModal
+            empresaId={empresaId}
+            onClose={() => setWaShowQR(false)}
+            onConnected={() => { setWaShowQR(false); loadWa(); }}
+          />
+        )}
       </div>
     );
   };

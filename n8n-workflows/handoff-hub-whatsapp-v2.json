@@ -1,0 +1,654 @@
+{
+  "name": "Handoff Hub - WhatsApp v2",
+  "nodes": [
+
+    {
+      "parameters": {
+        "updates": ["messages"]
+      },
+      "id": "wa-trigger",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsappTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "credentials": {
+        "whatsappApi": { "id": "TU_WA_CREDENTIAL_ID", "name": "WhatsApp API" }
+      },
+      "notes": "Nodo oficial de n8n. Maneja la verificación Meta automáticamente. Requiere credencial WhatsApp API con tu Access Token."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// El WhatsApp Trigger de n8n puede variar nombres de campo entre versiones.\n// Este nodo normaliza todo a campos fijos que usa el resto del flujo.\nconst d = $input.first().json;\n\nconst numero         = d.from          || d.From          || '';\nconst nombre         = d.profileName   || d.name          || 'Sin nombre';\nconst texto          = d.text?.body    || d.body          || d.message || '';\nconst tipo_mensaje   = d.type          || 'text';\nconst timestamp      = d.timestamp     || String(Math.floor(Date.now() / 1000));\nconst message_id     = d.messageId     || d.id            || '';\nconst phone_number_id = d.phoneNumberId || d.phone_number_id || '';\n\nif (!numero) return [{ json: { tipo: 'ignorar' } }];\n\nreturn [{\n  json: {\n    tipo: 'mensaje',\n    numero,\n    nombre,\n    texto,\n    tipo_mensaje,\n    timestamp,\n    message_id,\n    phone_number_id\n  }\n}];"
+      },
+      "id": "normalizar",
+      "name": "Normalizar Campos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "ignorar",
+              "leftValue": "={{ $json.tipo }}",
+              "rightValue": "ignorar",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-ignorar",
+      "name": "¿Ignorar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Filtra mensajes vacíos o no texto (imágenes sin texto, reacciones, etc.)"
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversaciones_handoff (numero_cliente, nombre_cliente, modo, phone_number_id)\nVALUES ('{{ $json.numero }}', '{{ $json.nombre }}', 'bot', '{{ $json.phone_number_id }}')\nON CONFLICT (numero_cliente) DO UPDATE SET\n  nombre_cliente  = EXCLUDED.nombre_cliente,\n  phone_number_id = EXCLUDED.phone_number_id,\n  ultimo_mensaje  = NOW()\nRETURNING numero_cliente, modo, contexto_bot;",
+        "options": {}
+      },
+      "id": "upsert-db",
+      "name": "Upsert Conversación DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "credentials": { "postgres": { "id": "TU_CREDENTIAL_ID", "name": "PostgreSQL Insignia" } }
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Combina los datos del trigger (Normalizar) con el resultado de la DB\nconst msg = $('Normalizar Campos').item.json;\nconst db  = $input.first().json;\n\nreturn [{\n  json: {\n    ...msg,\n    modo: db[0]?.modo ?? 'bot'\n  }\n}];"
+      },
+      "id": "merge-data",
+      "name": "Combinar Datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "modo-humano",
+              "leftValue": "={{ $json.modo }}",
+              "rightValue": "humano",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-modo",
+      "name": "¿Modo humano?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CRM_BASE_URL }}/api/webhook/mensaje-entrante",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-webhook-secret", "value": "={{ $env.CRM_WEBHOOK_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"numero\":         \"{{ $json.numero }}\",\n  \"nombre\":         \"{{ $json.nombre }}\",\n  \"mensaje\":        \"{{ $json.texto }}\",\n  \"timestamp\":      \"{{ $json.timestamp }}\",\n  \"origen\":         \"cliente\",\n  \"phone_number_id\":\"{{ $json.phone_number_id }}\"\n}",
+        "options": {}
+      },
+      "id": "notificar-crm-msg",
+      "name": "Notificar CRM (mensaje agente)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 180],
+      "notes": "Cuando el modo es HUMANO, el mensaje del cliente va al inbox del CRM para que el agente lo vea y responda manualmente. El bot NO responde nada."
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO mensajes_handoff (numero_cliente, origen, mensaje)\nVALUES ('{{ $json.numero }}', 'cliente', '{{ $json.texto }}');",
+        "options": {}
+      },
+      "id": "guardar-msg-humano",
+      "name": "Guardar Mensaje (modo humano)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "credentials": { "postgres": { "id": "TU_CREDENTIAL_ID", "name": "PostgreSQL Insignia" } }
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const texto = $json.texto?.toLowerCase().trim() ?? '';\n\n// Palabras clave que indican que el cliente quiere un agente humano\nconst KEYWORDS_AGENTE = [\n  'agente', 'humano', 'persona', 'operador', 'asesor',\n  'quiero hablar', 'hablar con alguien', 'soporte humano',\n  'representante', '3', 'tres'\n];\n\nconst quiere_agente = KEYWORDS_AGENTE.some(kw => texto.includes(kw));\n\nreturn [{ json: { ...$json, quiere_agente } }];"
+      },
+      "id": "detectar-intent",
+      "name": "Detectar Intención",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 420],
+      "notes": "Rama BOT: analiza si el cliente pide hablar con un humano"
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "pide-agente",
+              "leftValue": "={{ $json.quiere_agente }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-agente",
+      "name": "¿Pide agente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 420]
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversaciones_handoff\nSET modo = 'humano',\n    motivo_handoff = 'Solicitado por cliente',\n    fecha_handoff  = NOW()\nWHERE numero_cliente = '{{ $('Detectar Intención').item.json.numero }}'\nRETURNING *;",
+        "options": {}
+      },
+      "id": "activar-handoff-db",
+      "name": "Activar Handoff DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2000, 320],
+      "credentials": { "postgres": { "id": "TU_CREDENTIAL_ID", "name": "PostgreSQL Insignia" } }
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "phoneNumberId": "={{ $('Detectar Intención').item.json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Detectar Intención').item.json.numero }}",
+        "textBody": "Perfecto, te estoy conectando con un agente ahora mismo. 🙋\n\nEn breve una persona de nuestro equipo te va a atender. ¡Gracias por tu paciencia!"
+      },
+      "id": "wa-send-handoff",
+      "name": "WhatsApp: Avisar al cliente (handoff)",
+      "type": "n8n-nodes-base.whatsapp",
+      "typeVersion": 1,
+      "position": [2000, 440],
+      "credentials": {
+        "whatsappApi": { "id": "TU_WA_CREDENTIAL_ID", "name": "WhatsApp API" }
+      },
+      "notes": "Nodo oficial WhatsApp. Envía mensaje al cliente avisando que viene un agente."
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CRM_BASE_URL }}/api/webhook/handoff-nuevo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-webhook-secret", "value": "={{ $env.CRM_WEBHOOK_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tipo\":           \"handoff_nuevo\",\n  \"numero\":         \"{{ $('Detectar Intención').item.json.numero }}\",\n  \"nombre\":         \"{{ $('Detectar Intención').item.json.nombre }}\",\n  \"ultimo_mensaje\": \"{{ $('Detectar Intención').item.json.texto }}\",\n  \"motivo\":         \"Solicitado por cliente\",\n  \"phone_number_id\":\"{{ $('Detectar Intención').item.json.phone_number_id }}\"\n}",
+        "options": {}
+      },
+      "id": "notificar-agente-handoff",
+      "name": "Notificar Agente CRM (handoff nuevo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 560],
+      "notes": "Llama al webhook del CRM para que aparezca la notificación de handoff en el inbox del agente"
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "phoneNumberId": "={{ $('Detectar Intención').item.json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Detectar Intención').item.json.numero }}",
+        "textBody": "=¡Hola, {{ $('Detectar Intención').item.json.nombre }}! 👋\n\nSoy el asistente virtual de Insignia. ¿Cómo puedo ayudarte?\n\n1️⃣  Información sobre productos o servicios\n2️⃣  Soporte técnico\n3️⃣  Hablar con un agente humano\n\nRespondé con el número de tu opción o escribí tu consulta directamente."
+      },
+      "id": "wa-send-menu",
+      "name": "WhatsApp: Enviar Menú al cliente",
+      "type": "n8n-nodes-base.whatsapp",
+      "typeVersion": 1,
+      "position": [2000, 700],
+      "credentials": {
+        "whatsappApi": { "id": "TU_WA_CREDENTIAL_ID", "name": "WhatsApp API" }
+      },
+      "notes": "Nodo oficial WhatsApp. Se envía cuando el cliente escribe en modo BOT y NO pidió un agente."
+    },
+
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-enviar-respuesta",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-respuesta-agente",
+      "name": "WH: Agente Responde",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 800],
+      "notes": "FLUJO 2 — ¿CUÁNDO SE LLAMA?\nTu backend CRM lo llama cuando el agente hace clic en 'Enviar' en el Inbox.\nEn api.js, la función sendMessage() debe llamar:\nPOST /webhook/whatsapp-enviar-respuesta\n{ numero, mensaje, phone_number_id, agente_nombre }"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nif (!body.numero || !body.mensaje || !body.phone_number_id) {\n  throw new Error('Faltan campos: numero, mensaje, phone_number_id');\n}\nreturn [{ json: {\n  numero:          body.numero,\n  mensaje:         body.mensaje,\n  phone_number_id: body.phone_number_id,\n  agente_nombre:   body.agente_nombre || 'Agente'\n}}];"
+      },
+      "id": "parsear-respuesta",
+      "name": "Parsear Respuesta Agente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 800]
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "phoneNumberId": "={{ $json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $json.numero }}",
+        "textBody": "={{ $json.mensaje }}"
+      },
+      "id": "wa-send-agente",
+      "name": "WhatsApp: Enviar Respuesta Agente",
+      "type": "n8n-nodes-base.whatsapp",
+      "typeVersion": 1,
+      "position": [680, 800],
+      "credentials": {
+        "whatsappApi": { "id": "TU_WA_CREDENTIAL_ID", "name": "WhatsApp API" }
+      },
+      "notes": "Nodo oficial WhatsApp. Envía la respuesta del agente al número del cliente."
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO mensajes_handoff (numero_cliente, origen, mensaje)\nVALUES ('{{ $('Parsear Respuesta Agente').item.json.numero }}', 'agente', '{{ $('Parsear Respuesta Agente').item.json.mensaje }}');\n\nUPDATE conversaciones_handoff\nSET ultimo_mensaje = NOW()\nWHERE numero_cliente = '{{ $('Parsear Respuesta Agente').item.json.numero }}';",
+        "options": {}
+      },
+      "id": "db-guardar-msg-agente",
+      "name": "DB: Guardar Mensaje Agente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 800],
+      "credentials": { "postgres": { "id": "TU_CREDENTIAL_ID", "name": "PostgreSQL Insignia" } }
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\", \"enviado\": true }",
+        "options": { "responseCode": 200 }
+      },
+      "id": "resp-agente-ok",
+      "name": "Responder OK (agente)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 800]
+    },
+
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-cerrar-handoff",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-cerrar-handoff",
+      "name": "WH: Cerrar Handoff",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 1100],
+      "notes": "FLUJO 3 — ¿CUÁNDO SE LLAMA?\nTu backend CRM lo llama cuando el agente hace clic en 'Resolver / Cerrar' en el Inbox.\nEn api.js, la función updateConversationStatus() debe llamar además:\nPOST /webhook/whatsapp-cerrar-handoff\n{ numero, phone_number_id, agente_nombre, mensaje_cierre? }"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nif (!body.numero) throw new Error('Falta campo: numero');\nreturn [{ json: {\n  numero:          body.numero,\n  phone_number_id: body.phone_number_id || null,\n  agente_nombre:   body.agente_nombre   || 'el agente',\n  mensaje_cierre:  body.mensaje_cierre  || 'La consulta fue resuelta. Si necesitás más ayuda, escribinos. ¡Hasta pronto! 👋',\n  enviar_cierre:   body.enviar_cierre !== false\n}}];"
+      },
+      "id": "parsear-cierre",
+      "name": "Parsear Cierre",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 1100]
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversaciones_handoff\nSET modo = 'bot',\n    motivo_handoff = NULL,\n    fecha_cierre_handoff = NOW()\nWHERE numero_cliente = '{{ $json.numero }}'\nRETURNING *;",
+        "options": {}
+      },
+      "id": "db-cerrar-handoff",
+      "name": "DB: Cerrar Handoff (modo=bot)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [680, 1100],
+      "credentials": { "postgres": { "id": "TU_CREDENTIAL_ID", "name": "PostgreSQL Insignia" } }
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "debe-enviar",
+              "leftValue": "={{ $('Parsear Cierre').item.json.enviar_cierre }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            },
+            {
+              "id": "tiene-phone",
+              "leftValue": "={{ $('Parsear Cierre').item.json.phone_number_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-enviar-cierre",
+      "name": "¿Enviar mensaje cierre?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 1100]
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "phoneNumberId": "={{ $('Parsear Cierre').item.json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Parsear Cierre').item.json.numero }}",
+        "textBody": "={{ $('Parsear Cierre').item.json.mensaje_cierre }}"
+      },
+      "id": "wa-send-cierre",
+      "name": "WhatsApp: Enviar Mensaje Cierre",
+      "type": "n8n-nodes-base.whatsapp",
+      "typeVersion": 1,
+      "position": [1120, 1000],
+      "credentials": {
+        "whatsappApi": { "id": "TU_WA_CREDENTIAL_ID", "name": "WhatsApp API" }
+      }
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO mensajes_handoff (numero_cliente, origen, mensaje)\nVALUES ('{{ $('Parsear Cierre').item.json.numero }}', 'sistema', 'Handoff cerrado. Conversación devuelta al bot.');",
+        "options": {}
+      },
+      "id": "db-log-cierre",
+      "name": "DB: Log Cierre",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1120, 1120],
+      "credentials": { "postgres": { "id": "TU_CREDENTIAL_ID", "name": "PostgreSQL Insignia" } }
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\", \"modo\": \"bot\" }",
+        "options": { "responseCode": 200 }
+      },
+      "id": "resp-cierre-ok",
+      "name": "Responder OK (cierre)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 1100]
+    },
+
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-activar-handoff",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-activar-manual",
+      "name": "WH: Activar Handoff Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 1400],
+      "notes": "FLUJO 4 — ¿CUÁNDO SE LLAMA?\nOpcional. Úsalo cuando el BOT detecta que no puede resolver y quiere forzar handoff sin que el cliente lo pida.\nO desde el CRM si un admin quiere asignar manualmente.\nPOST /webhook/whatsapp-activar-handoff\n{ numero, phone_number_id, motivo?, agente_asignado?, enviar_aviso? }"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nif (!body.numero) throw new Error('Falta campo: numero');\nreturn [{ json: {\n  numero:           body.numero,\n  phone_number_id:  body.phone_number_id  || null,\n  motivo:           body.motivo           || 'Derivado automáticamente',\n  agente_asignado:  body.agente_asignado  || null,\n  enviar_aviso:     body.enviar_aviso !== false\n}}];"
+      },
+      "id": "parsear-activar-manual",
+      "name": "Parsear Activar Manual",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 1400]
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversaciones_handoff\nSET modo            = 'humano',\n    motivo_handoff  = '{{ $json.motivo }}',\n    fecha_handoff   = NOW()\nWHERE numero_cliente = '{{ $json.numero }}'\nRETURNING *;",
+        "options": {}
+      },
+      "id": "db-activar-manual",
+      "name": "DB: Activar Handoff Manual",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [680, 1400],
+      "credentials": { "postgres": { "id": "TU_CREDENTIAL_ID", "name": "PostgreSQL Insignia" } }
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "avisar",
+              "leftValue": "={{ $('Parsear Activar Manual').item.json.enviar_aviso }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            },
+            {
+              "id": "tiene-phone-manual",
+              "leftValue": "={{ $('Parsear Activar Manual').item.json.phone_number_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-avisar-manual",
+      "name": "¿Avisar al cliente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 1400]
+    },
+
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "phoneNumberId": "={{ $('Parsear Activar Manual').item.json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Parsear Activar Manual').item.json.numero }}",
+        "textBody": "Un agente de nuestro equipo se va a comunicar contigo en breve. ¡Gracias por tu paciencia! 🙋"
+      },
+      "id": "wa-send-aviso-manual",
+      "name": "WhatsApp: Avisar al cliente",
+      "type": "n8n-nodes-base.whatsapp",
+      "typeVersion": 1,
+      "position": [1120, 1300],
+      "credentials": {
+        "whatsappApi": { "id": "TU_WA_CREDENTIAL_ID", "name": "WhatsApp API" }
+      }
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\", \"modo\": \"humano\", \"numero\": \"{{ $('Parsear Activar Manual').item.json.numero }}\" }",
+        "options": { "responseCode": 200 }
+      },
+      "id": "resp-activar-ok",
+      "name": "Responder OK (activar handoff)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 1400]
+    }
+
+  ],
+
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [[{ "node": "Normalizar Campos", "type": "main", "index": 0 }]]
+    },
+    "Normalizar Campos": {
+      "main": [[{ "node": "¿Ignorar?", "type": "main", "index": 0 }]]
+    },
+    "¿Ignorar?": {
+      "main": [
+        [],
+        [{ "node": "Upsert Conversación DB", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upsert Conversación DB": {
+      "main": [[{ "node": "Combinar Datos", "type": "main", "index": 0 }]]
+    },
+    "Combinar Datos": {
+      "main": [[{ "node": "¿Modo humano?", "type": "main", "index": 0 }]]
+    },
+    "¿Modo humano?": {
+      "main": [
+        [
+          { "node": "Notificar CRM (mensaje agente)", "type": "main", "index": 0 },
+          { "node": "Guardar Mensaje (modo humano)", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Detectar Intención", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Detectar Intención": {
+      "main": [[{ "node": "¿Pide agente?", "type": "main", "index": 0 }]]
+    },
+    "¿Pide agente?": {
+      "main": [
+        [
+          { "node": "Activar Handoff DB",                  "type": "main", "index": 0 },
+          { "node": "WhatsApp: Avisar al cliente (handoff)", "type": "main", "index": 0 },
+          { "node": "Notificar Agente CRM (handoff nuevo)", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "WhatsApp: Enviar Menú al cliente", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+
+    "WH: Agente Responde": {
+      "main": [[{ "node": "Parsear Respuesta Agente", "type": "main", "index": 0 }]]
+    },
+    "Parsear Respuesta Agente": {
+      "main": [[{ "node": "WhatsApp: Enviar Respuesta Agente", "type": "main", "index": 0 }]]
+    },
+    "WhatsApp: Enviar Respuesta Agente": {
+      "main": [[{ "node": "DB: Guardar Mensaje Agente", "type": "main", "index": 0 }]]
+    },
+    "DB: Guardar Mensaje Agente": {
+      "main": [[{ "node": "Responder OK (agente)", "type": "main", "index": 0 }]]
+    },
+
+    "WH: Cerrar Handoff": {
+      "main": [[{ "node": "Parsear Cierre", "type": "main", "index": 0 }]]
+    },
+    "Parsear Cierre": {
+      "main": [[{ "node": "DB: Cerrar Handoff (modo=bot)", "type": "main", "index": 0 }]]
+    },
+    "DB: Cerrar Handoff (modo=bot)": {
+      "main": [[{ "node": "¿Enviar mensaje cierre?", "type": "main", "index": 0 }]]
+    },
+    "¿Enviar mensaje cierre?": {
+      "main": [
+        [
+          { "node": "WhatsApp: Enviar Mensaje Cierre", "type": "main", "index": 0 },
+          { "node": "DB: Log Cierre",                 "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "DB: Log Cierre", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "WhatsApp: Enviar Mensaje Cierre": {
+      "main": [[{ "node": "Responder OK (cierre)", "type": "main", "index": 0 }]]
+    },
+    "DB: Log Cierre": {
+      "main": [[{ "node": "Responder OK (cierre)", "type": "main", "index": 0 }]]
+    },
+
+    "WH: Activar Handoff Manual": {
+      "main": [[{ "node": "Parsear Activar Manual", "type": "main", "index": 0 }]]
+    },
+    "Parsear Activar Manual": {
+      "main": [[{ "node": "DB: Activar Handoff Manual", "type": "main", "index": 0 }]]
+    },
+    "DB: Activar Handoff Manual": {
+      "main": [[{ "node": "¿Avisar al cliente?", "type": "main", "index": 0 }]]
+    },
+    "¿Avisar al cliente?": {
+      "main": [
+        [
+          { "node": "WhatsApp: Avisar al cliente", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Responder OK (activar handoff)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "WhatsApp: Avisar al cliente": {
+      "main": [[{ "node": "Responder OK (activar handoff)", "type": "main", "index": 0 }]]
+    }
+  },
+
+  "settings": { "executionOrder": "v1" }
+}

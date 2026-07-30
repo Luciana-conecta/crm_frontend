@@ -275,6 +275,33 @@ export const inboxAPI = {
     return response.data;
   },
 
+  // ── HANDOFF HUB: llaman a los webhooks de n8n ────────────────────────────
+  // N8N_URL se configura en tu .env como VITE_N8N_URL=https://tu-n8n.cloud/webhook
+  enviarMensajeWhatsApp: async ({ numero, mensaje, phone_number_id, agente_nombre }) => {
+    const n8nUrl = import.meta.env.VITE_N8N_URL;
+    const response = await apiClient.post(`${n8nUrl}/whatsapp-enviar-respuesta`, {
+      numero, mensaje, phone_number_id, agente_nombre
+    });
+    return response.data;
+  },
+
+  activarHandoff: async ({ numero, phone_number_id, motivo, agente_asignado }) => {
+    const n8nUrl = import.meta.env.VITE_N8N_URL;
+    const response = await apiClient.post(`${n8nUrl}/whatsapp-activar-handoff`, {
+      numero, phone_number_id, motivo, agente_asignado, enviar_aviso: true
+    });
+    return response.data;
+  },
+
+  cerrarHandoff: async ({ numero, phone_number_id, agente_nombre, mensaje_cierre }) => {
+    const n8nUrl = import.meta.env.VITE_N8N_URL;
+    const response = await apiClient.post(`${n8nUrl}/whatsapp-cerrar-handoff`, {
+      numero, phone_number_id, agente_nombre, mensaje_cierre, enviar_cierre: true
+    });
+    return response.data;
+  },
+  // ─────────────────────────────────────────────────────────────────────────
+
   updateCompanyLogo: async (empresaId, logoUrl) => {
     const response = await apiClient.put(`/empresa/${empresaId}/logo`, { logo: logoUrl });
     return response.data;
@@ -315,6 +342,22 @@ export const inboxAPI = {
 
   testCanal: async (canalId) => {
     const response = await apiClient.post(`/whatsapp/canales/${canalId}/probar`);
+    return response.data;
+  },
+
+  // WhatsApp por QR (Baileys) — vinculación estilo WhatsApp Web
+  crearCanalQR: async (empresaId, data) => {
+    const response = await apiClient.post(`/whatsapp/empresas/${empresaId}/canales/qr`, data);
+    return response.data;
+  },
+
+  getEstadoCanalQR: async (canalId) => {
+    const response = await apiClient.get(`/whatsapp/canales/${canalId}/qr-estado`);
+    return response.data;
+  },
+
+  desconectarCanalQR: async (canalId) => {
+    const response = await apiClient.post(`/whatsapp/canales/${canalId}/qr-desconectar`);
     return response.data;
   }
 };

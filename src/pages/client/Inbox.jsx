@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api, aiAPI } from '../../services/api';
+import InboxPipelineBoard from '../../components/InboxPipelineBoard';
 
 const INTENT_LABELS = {
   consulta_precio:  { label: 'Consulta de precio',  color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
@@ -31,6 +32,7 @@ const Inbox = () => {
   const [sending, setSending] = useState(false);
   const [filter, setFilter] = useState('all'); // all, unread, assigned
   const [searchTerm, setSearchTerm] = useState('');
+  const [view, setView] = useState('chats'); // chats, pipeline
   const messagesEndRef = useRef(null);
 
   // IA
@@ -171,6 +173,33 @@ const Inbox = () => {
   };
 
 
+  const handleClose = async () => {
+    if (!activeChat) return;
+
+    try {
+      await api.inbox.updateConversationStatus(empresaId, activeChat, {
+        estado: 'cerrada'
+      });
+
+      await loadConversations();
+
+      alert('Conversación cerrada');
+    } catch (error) {
+      console.error('❌ Error cerrando conversación:', error);
+    }
+  };
+
+  const handleMoveConversation = async (conversacionId, nuevoEstado) => {
+    try {
+      await api.inbox.updateConversationStatus(empresaId, conversacionId, {
+        estado: nuevoEstado
+      });
+      await loadConversations();
+    } catch (error) {
+      console.error('❌ Error moviendo conversación en el pipeline:', error);
+    }
+  };
+
   const handleAISuggest = async () => {
     if (!activeChat || loadingAI) return;
     setLoadingAI(true);
@@ -280,7 +309,42 @@ const Inbox = () => {
   const activeConversation = getActiveConversation();
 
   return (
-    <div className="flex h-full w-full min-w-0 bg-background-light dark:bg-[#0d121c] overflow-hidden">
+    <div className="flex flex-col h-full w-full min-w-0 bg-background-light dark:bg-[#0d121c] overflow-hidden">
+      {/* Toggle de vista: Chats / Pipeline */}
+      <div className="h-12 px-6 flex items-center gap-2 border-b border-border-light dark:border-border-dark bg-surface-light dark:bg-[#151b26] shrink-0">
+        <button
+          onClick={() => setView('chats')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all ${
+            view === 'chats'
+              ? 'bg-primary text-white'
+              : 'text-text-sub-light hover:text-text-main-light dark:hover:text-white'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[16px]">chat</span>
+          Chats
+        </button>
+        <button
+          onClick={() => setView('pipeline')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all ${
+            view === 'pipeline'
+              ? 'bg-primary text-white'
+              : 'text-text-sub-light hover:text-text-main-light dark:hover:text-white'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[16px]">view_kanban</span>
+          Pipeline
+        </button>
+      </div>
+
+      {view === 'pipeline' ? (
+        <InboxPipelineBoard
+          conversations={conversations}
+          formatTime={formatTime}
+          onOpenChat={(id) => { setActiveChat(id); setView('chats'); }}
+          onMove={handleMoveConversation}
+        />
+      ) : (
+      <div className="flex flex-1 min-h-0 min-w-0">
       <aside className="w-80 lg:w-96 bg-surface-light dark:bg-[#151b26] border-r border-border-light dark:border-border-dark flex flex-col shrink-0">
         <div className="p-4 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center justify-between mb-4">
@@ -415,6 +479,11 @@ const Inbox = () => {
                         {conv.canal_nombre}
                       </span>
                     )}
+                    {conv.pipeline_status === 'sin_respuesta' && (
+                      <span className="px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                        Sin respuesta
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -466,12 +535,18 @@ const Inbox = () => {
                 </div>
               </div>
               
-              <div className="flex items-center gap-4">
-                <button 
+              <div className="flex items-center gap-2">
+                <button
                   onClick={handleResolve}
                   className="px-5 py-2 bg-green-500 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-green-600 transition-all"
                 >
                   Resolver
+                </button>
+                <button
+                  onClick={handleClose}
+                  className="px-5 py-2 bg-gray-200 dark:bg-gray-800 text-text-main-light dark:text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-gray-300 dark:hover:bg-gray-700 transition-all"
+                >
+                  Cerrar
                 </button>
               </div>
             </header>
@@ -684,72 +759,7 @@ const Inbox = () => {
           </>
         )}
       </main>
-
-      {/* ========================================
-          CONTEXT PANEL (Contact Info)
-          ======================================== */}
-      {activeConversation && (
-        <aside className="hidden xl:flex w-80 bg-surface-light dark:bg-[#151b26] border-l border-border-light dark:border-border-dark flex-col overflow-y-auto shrink-0 transition-colors">
-          <div className="p-8 flex flex-col items-center border-b border-gray-100 dark:border-gray-800">
-            {activeConversation.foto_perfil ? (
-              <img 
-                src={activeConversation.foto_perfil} 
-                alt={activeConversation.contacto_nombre}
-                className="size-24 rounded-full ring-4 ring-gray-50 dark:ring-gray-800 mb-4 shadow-xl object-cover"
-              />
-            ) : (
-              <div className="size-24 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center ring-4 ring-gray-50 dark:ring-gray-800 mb-4 shadow-xl">
-                <span className="text-green-600 dark:text-green-400 font-black text-3xl">
-                  {activeConversation.contacto_nombre?.[0]?.toUpperCase() || '?'}
-                </span>
-              </div>
-            )}
-            
-            <h3 className="text-xl font-black text-text-main-light dark:text-white leading-none">
-              {activeConversation.contacto_nombre || 'Sin nombre'}
-            </h3>
-            <p className="text-sm text-text-sub-light dark:text-gray-500 mt-2 font-medium">
-              {activeConversation.telefono_whatsapp}
-            </p>
-          </div>
-          
-          <div className="p-8 space-y-8">
-            <div className="space-y-4">
-              <h4 className="text-[10px] font-black text-text-sub-light uppercase tracking-widest">
-                Detalles de Conversación
-              </h4>
-              <div className="space-y-4">
-                <div className="flex gap-3">
-                  <span className="material-symbols-outlined text-text-sub-light text-[20px]">
-                    schedule
-                  </span>
-                  <div>
-                    <p className="text-sm font-bold text-text-main-light dark:text-gray-200">
-                      Último mensaje
-                    </p>
-                    <p className="text-xs text-text-sub-light">
-                      {formatTime(activeConversation.ultimo_mensaje_en)}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex gap-3 items-center">
-                  <span className="material-symbols-outlined text-text-sub-light text-[20px]">
-                    chat
-                  </span>
-                  <div>
-                    <p className="text-sm font-bold text-text-main-light dark:text-gray-200">
-                      Estado
-                    </p>
-                    <p className="text-xs text-text-sub-light capitalize">
-                      {activeConversation.estado}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </aside>
+      </div>
       )}
     </div>
   );
