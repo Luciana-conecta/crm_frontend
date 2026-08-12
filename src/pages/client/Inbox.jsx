@@ -65,6 +65,13 @@ const Inbox = () => {
     }
   }, [activeChat]);
 
+  // Polling de mensajes del chat activo (respuestas de la IA o del contacto llegan sin recargar)
+  useEffect(() => {
+    if (!activeChat) return;
+    const interval = setInterval(() => loadMessages(activeChat), 5000);
+    return () => clearInterval(interval);
+  }, [activeChat]);
+
   // Scroll al último mensaje cuando llegan mensajes nuevos
   useEffect(() => {
     if (messages.length > 0) {
