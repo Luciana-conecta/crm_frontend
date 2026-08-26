@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../services/api';
 
-// ── CSV line parser (handles quoted fields) ──────────────────────────────────
 const parseCSVLine = (line) => {
   const result = [];
   let current = '';
@@ -33,9 +32,6 @@ const TAG_OPTIONS = [
 ];
 
 const tagById   = (id) => TAG_OPTIONS.find(t => t.id === id);
-const TAGS_KEY  = 'crm_contact_tags';
-const loadAllTags = () => { try { return JSON.parse(localStorage.getItem(TAGS_KEY)) ?? {}; } catch { return {}; } };
-const saveAllTags = (map) => localStorage.setItem(TAGS_KEY, JSON.stringify(map));
 
 const INPUT_CLS = 'w-full h-12 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl px-4 font-semibold text-sm text-text-main-light dark:text-white focus:ring-4 focus:ring-primary/10 focus:border-primary outline-none transition-all';
 
@@ -51,7 +47,8 @@ const ClientContacts = () => {
   const [error, setError]                 = useState('');
   const [formData, setFormData]           = useState({ name: '', phone: '' });
   const [empresaId, setEmpresaId]         = useState(null);
-  const [tagsMap, setTagsMap]             = useState(loadAllTags);
+  const [tagSaving, setTagSaving]         = useState(false);
+  const [showTagsBoard, setShowTagsBoard] = useState(false);
 
   // Import / Export
   const [showIOMenu, setShowIOMenu]       = useState(false);
@@ -74,6 +71,7 @@ const ClientContacts = () => {
     email:      c.email       ?? '',
     cargo:      c.cargo       ?? '',
     notas:      c.notas       ?? '',
+    etiquetas:  Array.isArray(c.etiquetas) ? c.etiquetas : (typeof c.etiquetas === 'string' ? (() => { try { return JSON.parse(c.etiquetas); } catch { return []; } })() : []),
     estado:     c.estado      ?? 'activo',
     created_at: c.created_at  ?? c.fecha_creacion ?? new Date().toISOString(),
   });
@@ -99,7 +97,7 @@ const ClientContacts = () => {
   // ── Abrir detalle ────────────────────────────────────────────────────
   const openDetail = (c) => {
     console.log('[openDetail] contacto recibido:', c);
-    setDetailContact({ ...c, _tags: getContactTags(c.id) });
+    setDetailContact({ ...c, _tags: c.etiquetas ?? [] });
     setEditMode(false);
     setEditForm({
       nombre:          c.name,
@@ -132,19 +130,28 @@ const ClientContacts = () => {
   };
 
   // ── Tags ────────────────────────────────────────────────────────────
-  const toggleTag = (contactId, tagId) => {
-    const updated  = { ...tagsMap };
-    const current  = updated[contactId] ?? [];
-    updated[contactId] = current.includes(tagId)
+  const toggleTag = async (contact, tagId) => {
+    if (tagSaving) return;
+    const current = contact.etiquetas ?? [];
+    const nuevoArray = current.includes(tagId)
       ? current.filter(t => t !== tagId)
       : [...current, tagId];
-    setTagsMap(updated);
-    saveAllTags(updated);
-    if (detailContact?.id === contactId)
-      setDetailContact(prev => ({ ...prev, _tags: updated[contactId] }));
+
+    setTagSaving(true);
+    try {
+      await api.client.updateContact(empresaId, contact.id, { etiquetas: nuevoArray });
+      setContacts(prev => prev.map(c => c.id === contact.id ? { ...c, etiquetas: nuevoArray } : c));
+      if (detailContact?.id === contact.id)
+        setDetailContact(prev => ({ ...prev, etiquetas: nuevoArray, _tags: nuevoArray }));
+    } catch (err) {
+      console.error('Error al actualizar etiquetas:', err);
+      alert('No se pudo guardar la etiqueta. Intenta de nuevo.');
+    } finally {
+      setTagSaving(false);
+    }
   };
 
-  const getContactTags = (id) => tagsMap[id] ?? [];
+  const getContactTags = (id) => contacts.find(c => c.id === id)?.etiquetas ?? [];
 
   // ── Crear contacto ───────────────────────────────────────────────────
   const handleAdd = async (e) => {
@@ -311,11 +318,8 @@ const ClientContacts = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="space-y-2">
-          <div className="flex items-center gap-2 text-primary font-black text-[10px] uppercase tracking-[0.2em]">
-            <span className="material-symbols-outlined text-[14px]">database</span> Sincronización Real
-          </div>
+          
           <h1 className="text-5xl font-black tracking-tighter text-text-main-light dark:text-white leading-none">Directorio de Contactos</h1>
-          <p className="text-text-sub-light dark:text-gray-400 text-lg font-medium">Base de datos persistente para tu empresa.</p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           {/* Importar / Exportar */}
@@ -366,6 +370,12 @@ const ClientContacts = () => {
               </div>
             )}
           </div>
+
+          {/* Ver por etiquetas */}
+          <button onClick={() => setShowTagsBoard(true)}
+            className="h-14 border-2 border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark text-text-main-light dark:text-white px-6 rounded-[20px] font-black uppercase tracking-widest text-xs hover:border-primary hover:text-primary transition-all flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px]">sell</span>Ver por etiquetas
+          </button>
 
           {/* Añadir contacto */}
           <button onClick={() => setIsAddOpen(true)}
@@ -574,8 +584,8 @@ const ClientContacts = () => {
                   {TAG_OPTIONS.map(tag => {
                     const active = (detailContact._tags ?? []).includes(tag.id);
                     return (
-                      <button key={tag.id} onClick={() => toggleTag(detailContact.id, tag.id)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border-2 transition-all
+                      <button key={tag.id} onClick={() => toggleTag(detailContact, tag.id)} disabled={tagSaving}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border-2 transition-all disabled:opacity-50
                           ${active ? `${tag.bg} ${tag.text} border-transparent` : 'bg-transparent border-gray-200 dark:border-gray-700 text-text-sub-light hover:border-gray-300'}`}>
                         <span className={`size-2 rounded-full ${active ? tag.dot : 'bg-gray-300 dark:bg-gray-600'}`} />
                         {tag.label}
@@ -613,6 +623,57 @@ const ClientContacts = () => {
         </div>
       )}
 
+      {/* ── MODAL CLASIFICACIÓN POR ETIQUETAS ───────────────────────────── */}
+      {showTagsBoard && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-surface-dark w-full max-w-6xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-300 max-h-[85vh] flex flex-col">
+            <div className="px-10 pt-10 pb-6 flex items-start justify-between shrink-0">
+              <div>
+                <h2 className="text-2xl font-black text-text-main-light dark:text-white">Clientes por etiqueta</h2>
+                <p className="text-text-sub-light text-sm mt-0.5">Tocá una tarjeta para ver o editar el contacto.</p>
+              </div>
+              <button onClick={() => setShowTagsBoard(false)}
+                className="size-10 rounded-xl bg-gray-100 dark:bg-gray-800 text-text-sub-light hover:text-text-main-light flex items-center justify-center transition-all shrink-0">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-x-auto overflow-y-hidden px-10 pb-10">
+              <div className="flex gap-5 h-full min-w-max">
+                {[...TAG_OPTIONS, { id: '__sin_etiqueta__', label: 'Sin etiqueta', bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', dot: 'bg-gray-400' }].map(col => {
+                  const contactosCol = col.id === '__sin_etiqueta__'
+                    ? contacts.filter(c => (c.etiquetas ?? []).length === 0)
+                    : contacts.filter(c => (c.etiquetas ?? []).includes(col.id));
+                  return (
+                    <div key={col.id} className="w-72 shrink-0 flex flex-col bg-gray-50 dark:bg-gray-900/50 rounded-[24px] overflow-hidden">
+                      <div className="px-4 py-3 flex items-center gap-2 shrink-0 border-b border-border-light dark:border-border-dark">
+                        <span className={`size-2 rounded-full ${col.dot}`} />
+                        <p className="font-black text-xs uppercase tracking-widest text-text-main-light dark:text-white">{col.label}</p>
+                        <span className={`ml-auto px-2 py-0.5 rounded-lg text-[10px] font-black ${col.bg} ${col.text}`}>{contactosCol.length}</span>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        {contactosCol.length === 0 ? (
+                          <p className="text-xs text-text-sub-light text-center py-6">Sin contactos</p>
+                        ) : contactosCol.map(c => (
+                          <button key={c.id} onClick={() => { setShowTagsBoard(false); openDetail(c); }}
+                            className="w-full text-left bg-white dark:bg-surface-dark rounded-2xl p-3 border border-border-light dark:border-border-dark hover:border-primary transition-all">
+                            <p className="font-bold text-sm text-text-main-light dark:text-white truncate">{c.name}</p>
+                            <p className="text-xs text-text-sub-light">{c.phone}</p>
+                            <p className={`text-xs mt-1.5 line-clamp-2 ${c.notas ? 'text-text-sub-light dark:text-gray-400' : 'text-gray-300 dark:text-gray-700 italic'}`}>
+                              {c.notas || 'Sin notas'}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── MODAL AÑADIR ─────────────────────────────────────────────── */}
       {isAddOpen && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -636,7 +697,7 @@ const ClientContacts = () => {
             <div className="space-y-4 pt-4">
               <button type="submit" disabled={saving}
                 className="w-full h-16 bg-primary text-white font-black uppercase tracking-widest rounded-[24px] shadow-2xl shadow-primary/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center disabled:opacity-50">
-                {saving ? <span className="size-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Guardar en Postgres'}
+                {saving ? <span className="size-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Guardar'}
               </button>
               <button type="button" onClick={() => setIsAddOpen(false)}
                 className="w-full text-[10px] font-black uppercase text-text-sub-light tracking-widest hover:text-text-main-light transition-all">

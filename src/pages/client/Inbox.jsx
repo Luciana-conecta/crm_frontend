@@ -246,9 +246,30 @@ const Inbox = () => {
     try {
       await aiAPI.transferToHuman(activeChat);
       setAiSuggestion(null);
+      await loadConversations();
       alert('✅ Conversación transferida a un agente humano.');
     } catch {
       alert('No se pudo transferir. Asegúrate de que el backend soporta esta acción.');
+    } finally {
+      setTransferring(false);
+    }
+  };
+
+  const handleToggleIA = async () => {
+    if (!activeChat || transferring) return;
+    const conv = getActiveConversation();
+    const pausada = Boolean(conv?.asignado_a_humano);
+    setTransferring(true);
+    try {
+      if (pausada) {
+        await aiAPI.reactivarIA(activeChat);
+      } else {
+        await aiAPI.transferToHuman(activeChat);
+        setAiSuggestion(null);
+      }
+      await loadConversations();
+    } catch {
+      alert(pausada ? 'No se pudo reactivar la IA.' : 'No se pudo pausar la IA.');
     } finally {
       setTransferring(false);
     }
@@ -491,6 +512,11 @@ const Inbox = () => {
                         Sin respuesta
                       </span>
                     )}
+                    {conv.asignado_a_humano && (
+                      <span className="px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                        IA pausada
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -543,6 +569,21 @@ const Inbox = () => {
               </div>
               
               <div className="flex items-center gap-2">
+                <button
+                  onClick={handleToggleIA}
+                  disabled={transferring}
+                  title={activeConversation.asignado_a_humano ? 'Reactivar respuestas automáticas de la IA' : 'Detener la IA y responder solo un humano'}
+                  className={`flex items-center gap-1.5 px-4 py-2 text-xs font-black uppercase tracking-widest rounded-xl transition-all disabled:opacity-50 ${
+                    activeConversation.asignado_a_humano
+                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                      : 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">
+                    {activeConversation.asignado_a_humano ? 'smart_toy' : 'pause_circle'}
+                  </span>
+                  {activeConversation.asignado_a_humano ? 'Reactivar IA' : 'Pausar IA'}
+                </button>
                 <button
                   onClick={handleResolve}
                   className="px-5 py-2 bg-green-500 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-green-600 transition-all"

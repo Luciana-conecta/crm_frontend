@@ -404,6 +404,10 @@ export const aiAPI = {
     const response = await apiClient.post(`/whatsapp/conversaciones/${conversacionId}/transferir-humano`);
     return response.data;
   },
+  reactivarIA: async (conversacionId) => {
+    const response = await apiClient.post(`/whatsapp/conversaciones/${conversacionId}/reactivar-ia`);
+    return response.data;
+  },
 };
 
 export const api = {
