@@ -46,6 +46,7 @@ const ClientContacts = () => {
   const [loading, setLoading]             = useState(true);
   const [saving, setSaving]               = useState(false);
   const [updateSaving, setUpdateSaving]   = useState(false);
+  const [deleting, setDeleting]           = useState(false);
   const [error, setError]                 = useState('');
   const [formData, setFormData]           = useState({ name: '', phone: '' });
   const [empresaId, setEmpresaId]         = useState(null);
@@ -130,6 +131,23 @@ const ClientContacts = () => {
       alert('Error al guardar los cambios. Intenta de nuevo.');
     } finally {
       setUpdateSaving(false);
+    }
+  };
+
+  // ── Eliminar contacto ────────────────────────────────────────────────
+  const handleDelete = async () => {
+    if (!detailContact || deleting) return;
+    if (!window.confirm(`¿Eliminar a ${detailContact.name}? Esta acción no se puede deshacer.`)) return;
+    setDeleting(true);
+    try {
+      await api.client.deleteContact(empresaId, detailContact.id);
+      setContacts(prev => prev.filter(c => c.id !== detailContact.id));
+      closeDetail();
+    } catch (err) {
+      console.error('Error al eliminar:', err);
+      alert('No se pudo eliminar el contacto. Intenta de nuevo.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -458,7 +476,9 @@ const ClientContacts = () => {
                       </div>
                     </td>
                     <td className="px-10 py-5 font-medium text-text-sub-light dark:text-gray-400">{c.phone}</td>
-                    <td className="px-10 py-5 font-medium text-text-sub-light dark:text-gray-400">{c.empresa}</td>
+                    <td className="px-10 py-5 font-medium text-text-sub-light dark:text-gray-400 max-w-[220px]">
+                      {c.empresa && <p className="truncate" title={c.empresa}>{c.empresa}</p>}
+                    </td>
                     <td className="px-10 py-5">
                       <div className="flex flex-wrap gap-1">
                         {tags.map(tid => { const tag = tagById(tid); if (!tag) return null;
@@ -503,11 +523,20 @@ const ClientContacts = () => {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {!editMode && (
-                  <button onClick={() => setEditMode(true)}
-                    className="size-10 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 flex items-center justify-center transition-all"
-                    title="Editar">
-                    <span className="material-symbols-outlined text-[20px]">edit</span>
-                  </button>
+                  <>
+                    <button onClick={() => setEditMode(true)}
+                      className="size-10 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 flex items-center justify-center transition-all"
+                      title="Editar">
+                      <span className="material-symbols-outlined text-[20px]">edit</span>
+                    </button>
+                    <button onClick={handleDelete} disabled={deleting}
+                      className="size-10 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/40 flex items-center justify-center transition-all disabled:opacity-50"
+                      title="Eliminar contacto">
+                      {deleting
+                        ? <span className="size-4 border-2 border-red-600/30 border-t-red-600 rounded-full animate-spin" />
+                        : <span className="material-symbols-outlined text-[20px]">delete</span>}
+                    </button>
+                  </>
                 )}
                 <button onClick={closeDetail}
                   className="size-10 rounded-xl bg-gray-100 dark:bg-gray-800 text-text-sub-light hover:text-text-main-light flex items-center justify-center transition-all">
@@ -647,14 +676,14 @@ const ClientContacts = () => {
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden px-10 pb-10">
-              <div className="flex gap-5 h-full min-h-0 min-w-max">
+            <div className="h-[60vh] overflow-x-auto overflow-y-hidden px-10 pb-10">
+              <div className="flex gap-5 h-full min-w-max">
                 {[...TAG_OPTIONS, { id: '__sin_etiqueta__', label: 'Sin etiqueta', bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', dot: 'bg-gray-400' }].map(col => {
                   const contactosCol = col.id === '__sin_etiqueta__'
                     ? contacts.filter(c => (c.etiquetas ?? []).length === 0)
                     : contacts.filter(c => (c.etiquetas ?? []).includes(col.id));
                   return (
-                    <div key={col.id} className="w-72 shrink-0 flex flex-col min-h-0 bg-gray-50 dark:bg-gray-900/50 rounded-[24px] overflow-hidden">
+                    <div key={col.id} className="w-72 h-full shrink-0 flex flex-col bg-gray-50 dark:bg-gray-900/50 rounded-[24px] overflow-hidden">
                       <div className="px-4 py-3 flex items-center gap-2 shrink-0 border-b border-border-light dark:border-border-dark">
                         <span className={`size-2 rounded-full ${col.dot}`} />
                         <p className="font-black text-xs uppercase tracking-widest text-text-main-light dark:text-white">{col.label}</p>
