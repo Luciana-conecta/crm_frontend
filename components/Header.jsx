@@ -83,7 +83,7 @@ const GlobalSearch = ({ empresaId, isClient }) => {
       contacts = all.filter(c => {
         const nombre   = (c.nombre || c.name || '').toLowerCase();
         const email    = (c.email || '').toLowerCase();
-        const telefono = (c.telefono || c.phone || '').toLowerCase();
+        const telefono = (c.numero_telefono || c.telefono || c.phone || '').toLowerCase();
         return nombre.includes(lower) || email.includes(lower) || telefono.includes(lower);
       }).slice(0, 4);
     }
@@ -160,10 +160,10 @@ const GlobalSearch = ({ empresaId, isClient }) => {
               </p>
               {results.contacts.map((c) => {
                 const nombre = c.nombre || c.name || 'Sin nombre';
-                const sub    = c.email || c.telefono || c.phone || '';
+                const sub    = c.email || c.numero_telefono || c.telefono || c.phone || '';
                 return (
                   <button
-                    key={c.id}
+                    key={c.id_contactos ?? c.id}
                     onClick={() => handleSelect('contact', c)}
                     className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors text-left"
                   >

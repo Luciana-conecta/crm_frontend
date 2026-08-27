@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { api } from '../../services/api';
 
 const parseCSVLine = (line) => {
@@ -27,6 +28,7 @@ const TAG_OPTIONS = [
   { id: 'nuevo',      label: 'Cliente Nuevo', bg: 'bg-blue-100 dark:bg-blue-900/30',    text: 'text-blue-700 dark:text-blue-300',    dot: 'bg-blue-500' },
   { id: 'urgente',    label: 'Urgente',       bg: 'bg-red-100 dark:bg-red-900/30',      text: 'text-red-700 dark:text-red-300',      dot: 'bg-red-500' },
   { id: 'interesado', label: 'Interesado',    bg: 'bg-green-100 dark:bg-green-900/30',  text: 'text-green-700 dark:text-green-300',  dot: 'bg-green-500' },
+  { id: 'curso', label: 'Curso',    bg: 'bg-green-100 dark:bg-green-900/30',  text: 'text-green-700 dark:text-green-300',  dot: 'bg-green-500' },
   { id: 'seguimiento',label: 'Seguimiento',   bg: 'bg-amber-100 dark:bg-amber-900/30',  text: 'text-amber-700 dark:text-amber-300',  dot: 'bg-amber-500' },
   { id: 'inactivo',   label: 'Inactivo',      bg: 'bg-gray-100 dark:bg-gray-800',       text: 'text-gray-600 dark:text-gray-400',    dot: 'bg-gray-400' },
 ];
@@ -70,6 +72,7 @@ const ClientContacts = () => {
     phone:      c.numero_telefono ?? c.telefono ?? c.phone ?? '',
     email:      c.email       ?? '',
     cargo:      c.cargo       ?? '',
+    empresa:    c.empresa ?? c.campos_personalizados?.empresa ?? '',
     notas:      c.notas       ?? '',
     etiquetas:  Array.isArray(c.etiquetas) ? c.etiquetas : (typeof c.etiquetas === 'string' ? (() => { try { return JSON.parse(c.etiquetas); } catch { return []; } })() : []),
     estado:     c.estado      ?? 'activo',
@@ -104,6 +107,7 @@ const ClientContacts = () => {
       numero_telefono: c.phone,
       email:           c.email,
       cargo:           c.cargo,
+      empresa:         c.empresa,
       notas:           c.notas,
       estado:          c.estado,
     });
@@ -181,9 +185,9 @@ const ClientContacts = () => {
   // ── Exportar CSV ─────────────────────────────────────────────────────────
   const handleExportCSV = () => {
     setShowIOMenu(false);
-    const headers = ['Nombre', 'Telefono', 'Email', 'Cargo', 'Notas', 'Estado', 'Fecha'];
+    const headers = ['Nombre', 'Telefono', 'Email', 'Cargo', 'Empresa', 'Notas', 'Estado', 'Fecha'];
     const rows = contacts.map(c => [
-      c.name, c.phone, c.email, c.cargo, c.notas, c.estado,
+      c.name, c.phone, c.email, c.cargo, c.empresa, c.notas, c.estado,
       new Date(c.created_at).toLocaleDateString('es-ES'),
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`));
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
@@ -200,12 +204,12 @@ const ClientContacts = () => {
   const handleExportExcel = async () => {
     setShowIOMenu(false);
     try {
-      const XLSX = await import('https://esm.sh/xlsx');
       const data = contacts.map(c => ({
         'Nombre':         c.name    ?? '',
         'Telefono':       c.phone   ?? '',
         'Email':          c.email   ?? '',
         'Cargo':          c.cargo   ?? '',
+        'Empresa':        c.empresa ?? '',
         'Notas':          c.notas   ?? '',
         'Estado':         c.estado  ?? '',
         'Fecha Registro': new Date(c.created_at).toLocaleDateString('es-ES'),
@@ -223,7 +227,7 @@ const ClientContacts = () => {
   // ── Plantilla CSV de ejemplo ─────────────────────────────────────────────
   const handleDownloadTemplate = () => {
     setShowIOMenu(false);
-    const t = 'Nombre,Telefono,Email,Cargo,Notas\r\n"Juan Pérez","+34 600 000 001","juan@ejemplo.com","Gerente",""\r\n"María García","+34 600 000 002","maria@ejemplo.com","Directora","Cliente VIP"';
+    const t = 'Nombre,Telefono,Email,Cargo,Empresa,Notas\r\n"Juan Pérez","+34 600 000 001","juan@ejemplo.com","Gerente","Acme S.A.",""\r\n"María García","+34 600 000 002","maria@ejemplo.com","Directora","",""';
     const blob = new Blob(['\uFEFF' + t], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -259,16 +263,16 @@ const ClientContacts = () => {
           headers.map((h, i) => [h, parseCSVLine(line)[i] ?? ''])
         ));
       } else {
-        const XLSX = await import('https://esm.sh/xlsx');
         const wb = XLSX.read(await file.arrayBuffer());
         rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
       }
 
-      // Buscar valor en la fila probando variantes del nombre
+      // Buscar valor en la fila probando variantes del nombre (ignora tildes/mayúsculas)
+      const normalizeHeader = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
       const getField = (row, ...keys) => {
         for (const k of keys) {
           for (const rk of Object.keys(row)) {
-            if (rk.toLowerCase().includes(k) && String(row[rk]).trim() !== '')
+            if (normalizeHeader(rk).includes(k) && String(row[rk]).trim() !== '')
               return String(row[rk]).trim();
           }
         }
@@ -281,6 +285,7 @@ const ClientContacts = () => {
           telefono: getField(r, 'telefono', 'phone', 'movil', 'celular', 'tel', 'numero'),
           email:    getField(r, 'email', 'correo', 'mail'),
           cargo:    getField(r, 'cargo', 'puesto', 'posicion', 'position'),
+          empresa:  getField(r, 'empresa', 'compania', 'compañia', 'company', 'organizacion'),
           notas:    getField(r, 'notas', 'nota', 'notes', 'observacion'),
         }))
         .filter(r => r.nombre || r.telefono);
@@ -319,7 +324,7 @@ const ClientContacts = () => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="space-y-2">
           
-          <h1 className="text-5xl font-black tracking-tighter text-text-main-light dark:text-white leading-none">Directorio de Contactos</h1>
+          <h1 className="text-5xl font-black tracking-tighter text-text-main-light dark:text-white leading-none">Contactos</h1>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           {/* Importar / Exportar */}
@@ -424,6 +429,7 @@ const ClientContacts = () => {
               <tr>
                 <th className="px-10 py-6">Contacto</th>
                 <th className="px-10 py-6">Teléfono</th>
+                <th className="px-10 py-6">Empresa</th>
                 <th className="px-10 py-6">Etiquetas</th>
                 <th className="px-10 py-6">Registro</th>
                 <th className="px-10 py-6 text-right">Gestión</th>
@@ -431,7 +437,7 @@ const ClientContacts = () => {
             </thead>
             <tbody className="divide-y divide-border-light dark:divide-border-dark">
               {contacts.length === 0 ? (
-                <tr><td colSpan={5} className="px-10 py-20 text-center">
+                <tr><td colSpan={6} className="px-10 py-20 text-center">
                   <span className="material-symbols-outlined text-6xl text-gray-200 dark:text-gray-800">contacts</span>
                   <p className="mt-4 font-bold text-text-sub-light">No hay contactos registrados.</p>
                 </td></tr>
@@ -452,6 +458,7 @@ const ClientContacts = () => {
                       </div>
                     </td>
                     <td className="px-10 py-5 font-medium text-text-sub-light dark:text-gray-400">{c.phone}</td>
+                    <td className="px-10 py-5 font-medium text-text-sub-light dark:text-gray-400">{c.empresa}</td>
                     <td className="px-10 py-5">
                       <div className="flex flex-wrap gap-1">
                         {tags.map(tid => { const tag = tagById(tid); if (!tag) return null;
@@ -517,6 +524,7 @@ const ClientContacts = () => {
                     { icon: 'phone',       label: 'Teléfono', value: detailContact.phone },
                     { icon: 'mail',        label: 'Email',    value: detailContact.email },
                     { icon: 'work',        label: 'Cargo',    value: detailContact.cargo },
+                    { icon: 'apartment',   label: 'Empresa',  value: detailContact.empresa },
                     { icon: 'circle',      label: 'Estado',   value: detailContact.estado },
                     { icon: 'sticky_note_2',label:'Notas',    value: detailContact.notas },
                   ].filter(f => f.value).map(f => (
@@ -538,7 +546,8 @@ const ClientContacts = () => {
                     { key: 'nombre',   label: 'Nombre Completo',  type: 'text',  required: true },
                     { key: 'numero_telefono', label: 'Teléfono',     type: 'tel',   required: true },
                     { key: 'email',    label: 'Email',             type: 'email', required: false },
-                    { key: 'cargo',    label: 'Cargo / Empresa',   type: 'text',  required: false },
+                    { key: 'cargo',    label: 'Cargo',             type: 'text',  required: false },
+                    { key: 'empresa',  label: 'Empresa',           type: 'text',  required: false },
                   ].map(f => (
                     <div key={f.key} className="space-y-1.5">
                       <label className="text-[10px] font-black text-text-sub-light uppercase tracking-widest px-1">{f.label}</label>
@@ -638,14 +647,14 @@ const ClientContacts = () => {
               </button>
             </div>
 
-            <div className="flex-1 overflow-x-auto overflow-y-hidden px-10 pb-10">
-              <div className="flex gap-5 h-full min-w-max">
+            <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden px-10 pb-10">
+              <div className="flex gap-5 h-full min-h-0 min-w-max">
                 {[...TAG_OPTIONS, { id: '__sin_etiqueta__', label: 'Sin etiqueta', bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', dot: 'bg-gray-400' }].map(col => {
                   const contactosCol = col.id === '__sin_etiqueta__'
                     ? contacts.filter(c => (c.etiquetas ?? []).length === 0)
                     : contacts.filter(c => (c.etiquetas ?? []).includes(col.id));
                   return (
-                    <div key={col.id} className="w-72 shrink-0 flex flex-col bg-gray-50 dark:bg-gray-900/50 rounded-[24px] overflow-hidden">
+                    <div key={col.id} className="w-72 shrink-0 flex flex-col min-h-0 bg-gray-50 dark:bg-gray-900/50 rounded-[24px] overflow-hidden">
                       <div className="px-4 py-3 flex items-center gap-2 shrink-0 border-b border-border-light dark:border-border-dark">
                         <span className={`size-2 rounded-full ${col.dot}`} />
                         <p className="font-black text-xs uppercase tracking-widest text-text-main-light dark:text-white">{col.label}</p>
@@ -690,7 +699,7 @@ const ClientContacts = () => {
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-text-sub-light uppercase tracking-widest px-1">Número Móvil</label>
-                <input required placeholder="+34 600 000 000" value={formData.phone}
+                <input required placeholder="098234231" value={formData.phone}
                   onChange={e => setFormData({ ...formData, phone: e.target.value })} className={INPUT_CLS} />
               </div>
             </div>
