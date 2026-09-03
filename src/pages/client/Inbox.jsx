@@ -34,6 +34,8 @@ const Inbox = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [view, setView] = useState('chats'); // chats, pipeline
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const isNearBottomRef = useRef(true);
 
   // IA
   const [aiSuggestion, setAiSuggestion] = useState(null); // { contenido, intent }
@@ -72,9 +74,11 @@ const Inbox = () => {
     return () => clearInterval(interval);
   }, [activeChat]);
 
-  // Scroll al último mensaje cuando llegan mensajes nuevos
+  // Scroll al último mensaje cuando llegan mensajes nuevos — pero solo si el
+  // usuario ya estaba abajo del todo. Si scrolleó para arriba a leer mensajes
+  // viejos, el polling cada 5s no debe arrastrarlo de vuelta al final.
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length > 0 && isNearBottomRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
@@ -82,9 +86,18 @@ const Inbox = () => {
   // Scroll instantáneo (sin animación) al cambiar de chat
   useEffect(() => {
     if (activeChat) {
+      isNearBottomRef.current = true;
       messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
     }
   }, [activeChat]);
+
+  // Detectar si el usuario está cerca del final del chat (para saber si autoscrollear)
+  const handleMessagesScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distanceFromBottom < 120;
+  };
 
   // ============================================
   // FUNCIONES DE CARGA
@@ -144,11 +157,12 @@ const Inbox = () => {
       };
 
       await api.inbox.sendMessage(empresaId, activeChat, messageData);
-      
+
       // Limpiar input
       setMessageText('');
-      
-      // Recargar mensajes
+
+      // Recargar mensajes — al enviar uno propio, siempre bajar al final
+      isNearBottomRef.current = true;
       await loadMessages(activeChat);
       
       // Recargar lista de conversaciones para actualizar timestamp
@@ -282,14 +296,19 @@ const Inbox = () => {
     const now = new Date();
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
 
     if (diffMins < 1) return 'Ahora';
     if (diffMins < 60) return `${diffMins} min`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays === 1) return 'Ayer';
-    
+
+    // Diferencia de días de CALENDARIO (no de 24hs), para que un mensaje del
+    // martes a la noche no se muestre como "Ayer" al revisarlo el jueves temprano.
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfMsgDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const dayDiff = Math.round((startOfToday - startOfMsgDay) / 86400000);
+
+    if (dayDiff === 0) return `${Math.floor(diffMs / 3600000)}h`;
+    if (dayDiff === 1) return 'Ayer';
+
     return date.toLocaleDateString('es-PY', { day: 'numeric', month: 'short' });
   };
 
@@ -600,7 +619,7 @@ const Inbox = () => {
             </header>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6">
+            <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-8 flex flex-col gap-6">
               {messages.length === 0 ? (
                 <div className="flex-1 flex items-center justify-center text-text-sub-light">
                   <p>No hay mensajes en esta conversación</p>
